@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PO & CSV File Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #dropZone {
+            border: 3px dashed #cbd5e1;
+            transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+            position: relative;
+            min-height: 300px;
+        }
+        #dropZone.drag-over {
+            background-color: #e0e7ff;
+            border-color: #4f46e5;
+        }
+        .icon {
+            width: 48px;
+            height: 48px;
+            stroke-width: 1.5;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-2xl text-center">
+
+        <header class="mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">File Converter</h1>
+            <p class="mt-2 text-md md:text-lg text-gray-600">Convert .po files to .csv and vice-versa.</p>
+        </header>
+
+        <main class="bg-white p-8 rounded-xl shadow-md border border-gray-200">
+            <div id="initialState">
+                <div id="dropZone" class="flex flex-col items-center justify-center rounded-lg cursor-pointer">
+                    <input type="file" id="fileInput" class="hidden" accept=".po,.csv,text/plain,text/csv">
+                    <div class="text-center text-gray-600 pointer-events-none">
+                        <svg class="icon mx-auto text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-4-4V7a4 4 0 014-4h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V16a4 4 0 01-4 4H7z" />
+                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                        <p class="font-semibold mt-4">Drag & drop your file here</p>
+                        <p class="text-sm">or click to select a file</p>
+                        <p class="text-xs mt-2 text-gray-500">Supported types: .po, .csv</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultState" class="hidden text-center">
+                 <svg class="icon mx-auto text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 id="resultTitle" class="text-2xl font-semibold mt-4 text-gray-800">Conversion Complete!</h2>
+                <p id="resultFileName" class="text-gray-600 mt-1"></p>
+                <button id="downloadBtn" class="w-full max-w-xs mx-auto mt-6 bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                    Download
+                </button>
+                 <button id="resetBtn" class="w-full max-w-xs mx-auto mt-3 bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors">
+                    Convert Another File
+                </button>
+            </div>
+            
+            <div id="errorState" class="hidden text-center">
+                <svg class="icon mx-auto text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 class="text-2xl font-semibold mt-4 text-red-700">Conversion Failed</h2>
+                <p id="errorMessage" class="text-gray-600 mt-1"></p>
+                <button id="resetErrorBtn" class="w-full max-w-xs mx-auto mt-6 bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors">
+                    Try Again
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const initialState = document.getElementById('initialState');
+        const resultState = document.getElementById('resultState');
+        const errorState = document.getElementById('errorState');
+        const resultTitle = document.getElementById('resultTitle');
+        const resultFileName = document.getElementById('resultFileName');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const resetErrorBtn = document.getElementById('resetErrorBtn');
+        const errorMessage = document.getElementById('errorMessage');
+
+        let convertedContent = null;
+        let downloadFileName = '';
+        let mimeType = '';
+
+        // --- Event Listeners ---
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files));
+        dropZone.addEventListener('dragover', handleDragOver);
+        dropZone.addEventListener('dragleave', handleDragLeave);
+        dropZone.addEventListener('drop', handleFileDrop);
+        downloadBtn.addEventListener('click', handleDownload);
+        resetBtn.addEventListener('click', resetState);
+        resetErrorBtn.addEventListener('click', resetState);
+
+        // --- State Management ---
+        function showResultState(title, fileName) {
+            initialState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            resultState.classList.remove('hidden');
+            resultTitle.textContent = title;
+            resultFileName.textContent = `Ready to download: ${fileName}`;
+        }
+        
+        function showErrorState(message) {
+            initialState.classList.add('hidden');
+            resultState.classList.add('hidden');
+            errorState.classList.remove('hidden');
+            errorMessage.textContent = message;
+        }
+
+        function resetState() {
+            resultState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            initialState.classList.remove('hidden');
+            fileInput.value = ''; // Reset file input
+            convertedContent = null;
+            downloadFileName = '';
+            mimeType = '';
+        }
+
+        // --- Drag and Drop Handlers ---
+        function handleFileSelect(files) {
+            if (files.length) {
+                processFile(files[0]);
+            }
+        }
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        }
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        }
+        function handleFileDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+            handleFileSelect(e.dataTransfer.files);
+        }
+
+        // --- Core Logic ---
+        function processFile(file) {
+            const reader = new FileReader();
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            const baseName = file.name.substring(0, file.name.lastIndexOf('.'));
+
+            reader.onload = (e) => {
+                try {
+                    const content = e.target.result;
+                    if (fileExtension === 'po') {
+                        convertedContent = poToCsv(content);
+                        downloadFileName = `${baseName}.csv`;
+                        mimeType = 'text/csv';
+                        showResultState('PO to CSV Conversion Complete!', downloadFileName);
+                    } else if (fileExtension === 'csv') {
+                        convertedContent = csvToPo(content);
+                        downloadFileName = `${baseName}.po`;
+                        mimeType = 'text/plain';
+                        showResultState('CSV to PO Conversion Complete!', downloadFileName);
+                    } else {
+                        throw new Error(`Unsupported file type: .${fileExtension}`);
+                    }
+                } catch (error) {
+                    showErrorState(error.message);
+                    console.error(error);
+                }
+            };
+            reader.onerror = () => showErrorState('Error reading the file.');
+            reader.readAsText(file);
+        }
+
+        function handleDownload() {
+            if (!convertedContent || !downloadFileName) return;
+
+            const blob = new Blob([convertedContent], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = downloadFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Conversion Functions (Corrected to use msgctxt) ---
+        function poToCsv(poText) {
+            const lines = poText.split('\n');
+            const entries = [];
+            let currentEntry = {};
+            let currentStringKey = null; // 'msgid' or 'msgstr'
+            let currentContext = null; // Holds the msgctxt value
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                
+                // Skip comments and empty lines
+                if (trimmedLine.startsWith('#') || trimmedLine === '') continue;
+
+                // Capture the context for the *next* entry
+                if (trimmedLine.startsWith('msgctxt')) {
+                    currentContext = extractPoString(trimmedLine);
+                    continue; 
+                }
+
+                if (trimmedLine.startsWith('msgid ')) {
+                    // Start of a new entry. Push the previous one if it's complete.
+                    if (currentEntry.msgid !== undefined && currentEntry.msgstr !== undefined && currentEntry.msgid !== '') {
+                        entries.push(currentEntry);
+                    }
+                    
+                    // Reset for the new entry
+                    currentEntry = {};
+                    currentEntry.msgid = extractPoString(trimmedLine);
+                    currentStringKey = 'msgid';
+
+                    // Assign the captured context as the key, then reset context for the next block.
+                    if (currentContext) {
+                        currentEntry.key = currentContext;
+                        currentContext = null; 
+                    }
+                } else if (trimmedLine.startsWith('msgstr ')) {
+                    currentEntry.msgstr = extractPoString(trimmedLine);
+                    currentStringKey = 'msgstr';
+                } else if (trimmedLine.startsWith('"')) {
+                    // Handle multi-line strings for msgid or msgstr
+                    if (currentStringKey && currentEntry[currentStringKey] !== undefined) {
+                        currentEntry[currentStringKey] += extractPoString(trimmedLine);
+                    }
+                } else {
+                    currentStringKey = null;
+                }
+            }
+
+            // Push the very last entry
+            if (currentEntry.msgid !== undefined && currentEntry.msgstr !== undefined && currentEntry.msgid !== '') {
+                entries.push(currentEntry);
+            }
+
+            if (entries.length === 0) throw new Error("No valid, non-header PO entries found.");
+            
+            const header = `"key","msgid","msgstr"`;
+            const csvRows = entries.map(entry => {
+                // Use msgctxt (stored in entry.key) as the key. Fallback to msgid if no msgctxt.
+                const key = escapeCsvField(entry.key || entry.msgid || '');
+                const msgid = escapeCsvField(entry.msgid || '');
+                const msgstr = escapeCsvField(entry.msgstr || '');
+                return `"${key}","${msgid}","${msgstr}"`;
+            });
+            return [header, ...csvRows].join('\n');
+        }
+
+
+        function csvToPo(csvText) {
+            const regex = /(?:"((?:[^"]|"")*)")(?:,|$)|([^,]*)(?:,|$)/g;
+            const lines = csvText.split('\n').map(line => line.trim()).filter(Boolean);
+            if (lines.length < 1) throw new Error("CSV file appears to be empty.");
+            
+            const poEntries = [];
+            const headerLine = lines.shift() || '';
+            const header = [...headerLine.matchAll(regex)].map(m => (m[1] !== undefined ? m[1] : m[2]).trim().toLowerCase());
+            
+            const keyIndex = header.indexOf('key');
+            const msgidIndex = header.indexOf('msgid');
+            const msgstrIndex = header.indexOf('msgstr');
+
+            if (msgidIndex === -1 || msgstrIndex === -1) {
+                throw new Error("CSV header must contain 'msgid' and 'msgstr' columns.");
+            }
+
+            // Add a default PO header
+            poEntries.push(`msgid ""
+msgstr ""
+"Project-Id-Version: Game\\n"
+"POT-Creation-Date: 2025-06-24 11:08\\n"
+"PO-Revision-Date: 2025-06-24 11:08\\n"
+"MIME-Version: 1.0\\n"
+"Content-Type: text/plain; charset=UTF-8\\n"
+"Content-Transfer-Encoding: 8bit\\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\\n"`)
+
+            for (const line of lines) {
+                const matches = [...line.matchAll(regex)];
+                const values = matches.map(m => m[1] !== undefined ? m[1].replace(/""/g, '"') : m[2]);
+                
+                const key = keyIndex > -1 ? values[keyIndex] : null;
+                const msgid = values[msgidIndex];
+                const msgstr = values[msgstrIndex];
+
+                if (msgid === undefined || msgstr === undefined) continue;
+                
+                let entry = '';
+                // If a key exists and it's different from the msgid, write it as msgctxt
+                if (key && key !== msgid) {
+                    entry += `msgctxt "${escapePoField(key)}"\n`;
+                }
+                entry += `msgid "${escapePoField(msgid)}"\n`;
+                entry += `msgstr "${escapePoField(msgstr)}"`;
+                poEntries.push(entry);
+            }
+            
+            if (poEntries.length <= 1) throw new Error("No valid data rows found in CSV.");
+            return poEntries.join('\n\n');
+        }
+
+        // --- Helper Functions ---
+        function extractPoString(line) {
+            const trimmed = line.trim();
+            const firstQuote = trimmed.indexOf('"');
+            const lastQuote = trimmed.lastIndexOf('"');
+            if (firstQuote === -1 || firstQuote === lastQuote) return '';
+            return trimmed.substring(firstQuote + 1, lastQuote)
+                          .replace(/\\"/g, '"')
+                          .replace(/\\n/g, '\n');
+        }
+
+        function escapeCsvField(field) {
+            if (typeof field !== 'string') return '';
+            return field.replace(/"/g, '""');
+        }
+
+        function escapePoField(field) {
+            if (typeof field !== 'string') return '';
+            return field.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+        }
+    </script>
+</body>
+</html>
